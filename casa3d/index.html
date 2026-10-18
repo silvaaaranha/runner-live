@@ -287,6 +287,7 @@ kbd{font:600 11.5px var(--f-mono);padding:1px 6px;border:1px solid var(--line);b
         </div>
         <div class="stack" id="hostBox">
           <button class="cta" type="button" id="bHost">Criar partida para dois</button>
+          <button class="ghost" type="button" id="bDuo">Dois no mesmo teclado</button>
           <button class="ghost" type="button" id="bSolo">Modo solo: você controla os dois</button>
         </div>
         <div class="stack" id="openBox" hidden>
@@ -305,6 +306,7 @@ kbd{font:600 11.5px var(--f-mono);padding:1px 6px;border:1px solid var(--line);b
           <dt>Atirar</dt><dd><kbd>F</kbd> ou clique no alvo</dd>
           <dt>Câmera</dt><dd><kbd>C</kbd> ou rodinha do mouse · som <kbd>M</kbd> · menu <kbd>Esc</kbd></dd>
           <dt>Solo</dt><dd><kbd>Q</kbd> ou <kbd>Tab</kbd> troca de personagem</dd>
+          <dt>Teclado a dois</dt><dd>quem procura usa <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>E</kbd> e <kbd>F</kbd>; quem distrai usa as setas e <kbd>Enter</kbd></dd>
         </dl>
         <dl class="keys" id="keysTouch" hidden>
           <dt>Mover</dt><dd>arraste o polegar no lado esquerdo da tela</dd>
@@ -385,6 +387,10 @@ kbd{font:600 11.5px var(--f-mono);padding:1px 6px;border:1px solid var(--line);b
 document.documentElement.lang = 'pt-BR';
 // The page's own claude.ai link, so the host can share "<link>#code".
 const ARTIFACT_URL = 'https://claude.ai/artifact/Xigzhg9vZd729GuQ6AKmnp';
+// The public copy outside claude.ai, where online play runs browser-to-browser with no account.
+const PUBLIC_URL = 'https://silvaaaranha.github.io/runner-live/casa3d/';
+const PEER_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+const PEER_PREFIX = 'acasa3d-';
 const PROTO = 1;
 const $ = id => document.getElementById(id);
 const app = $('app'), cv = $('cv'), labelsEl = $('labels');
@@ -657,12 +663,15 @@ const NET = {
   lastSnapAt: 0, mateGoneT: 0, hostGoneT: 0, everHost: false, joining: false,
 };
 const online = () => S.mode === 'online';
+const localDuo = () => S.mode === 'duo';
 const isGuest = () => online() && NET.role === 'guest';
 const isHostSide = () => !isGuest();
 const controlsBoth = () => S.mode === 'solo' || (NET.role === 'host' && !NET.mate);
 const myRole = () => ME === 0 ? 'l' : 'v';
 const ctlIdx = () => controlsBoth() ? S.active : ME;
-function localCtl(p) { return isGuest() ? p === P[ME] : controlsBoth() ? true : p === P[ME]; }
+function localCtl(p) { return localDuo() || (isGuest() ? p === P[ME] : controlsBoth() ? true : p === P[ME]); }
+// the character(s) this screen is steering right now
+function isMine(p) { return localDuo() || (controlsBoth() ? P[S.active] === p : p === P[ME]); }
 const myName = () => cleanName($('myName').value);
 
 // ---------- audio (synthesized, starts after a click) ----------
@@ -777,7 +786,7 @@ function ev(k, ...a) {
   applyEv(e);
   if (online() && NET.role === 'host') { NET.evLog.push(e); if (NET.evLog.length > 18) NET.evLog.shift(); }
 }
-function forMe(role) { return !role || controlsBoth() || role === myRole(); }
+function forMe(role) { return !role || localDuo() || controlsBoth() || role === myRole(); }
 function refEnt(ref) { return ref === 'l' ? L : ref === 'v' ? V : S.npcs[ref] || null; }
 function applyEv(e) {
   const k = e[1], a = e.slice(2);
@@ -877,7 +886,13 @@ function setupRound(r) {
   setPhase('prep');
   ev('ann', 'Noite ' + r, r === 1 ? 'Ninguém sabe a hora, mas a casa vai ser invadida.' : 'De novo. Pessoas diferentes. Esconderijos diferentes.');
   const ln = L.name, vn = V.name;
-  if (r === 1 && controlsBoth()) {
+  if (r === 1 && localDuo()) {
+    S.tut = [
+      [1.5, `${ln}: WASD anda, E procura, F ou clique atira.`, 0],
+      [5, `${vn}: setas andam, Enter conversa, liga a TV e o rádio, e provoca na invasão.`, 0],
+      [10, `Conversa longa rende pista de esconderijo. Se alguém vir ${ln} procurando, a desconfiança sobe.`, 0],
+    ];
+  } else if (r === 1 && controlsBoth()) {
     S.tut = [
       [1.5, `${ln} procura a arma e a munição. Se alguém vir a busca, a desconfiança sobe.`, 0],
       [6, `${vn} distrai: puxa papo com as pessoas ou liga a TV e o rádio.`, 0],
@@ -1200,7 +1215,7 @@ function startInvasion(reason) {
     if (!L.gun) toastTo('l', `${L.name} ainda não achou a arma. Dá pra continuar procurando.`, 'bad', 5000);
     else if (L.ammo === 0) toastTo('l', 'A arma está sem munição. Procure as caixas.', 'bad', 5000);
   }, 1200);
-  setTimeout(() => { if (S.phase === 'inv') toastTo('v', controlsBoth() ? `${V.name} pode provocar os invasores e puxar eles pra longe das pessoas.` : 'Provoque os invasores (ação) pra puxar eles pra longe das pessoas.', '', 5000); }, 4200);
+  setTimeout(() => { if (S.phase === 'inv') toastTo('v', controlsBoth() || localDuo() ? `${V.name} pode provocar os invasores e puxar eles pra longe das pessoas.` : 'Provoque os invasores (ação) pra puxar eles pra longe das pessoas.', '', 5000); }, 4200);
 }
 function prepUpdate(dt) {
   S.prepLeft -= dt;
@@ -1249,10 +1264,10 @@ function gameOver(reason, who) {
   S.overInfo = { reason, who: who ? who.name : '', nights: S.stats.nights, saved: S.stats.saved };
   setPhase('over');
 }
-function startGame(solo) {
+function startGame(mode) {
   S.stats = { nights: 0, saved: 0, shots: 0 }; S.usedNames.clear();
   auStart(); droneStart();
-  if (solo) { leaveNet(); S.mode = 'solo'; ME = 0; R = 1; }
+  if (mode !== 'online') { leaveNet(); S.mode = mode; ME = 0; R = 1; S.active = 0; }
   setupRound(1);
 }
 function requestNext() {
@@ -1315,14 +1330,82 @@ function pressNext(btn) {
 const CODE_RE = /^casa-[a-z0-9]{4,10}$/;
 async function netInit() {
   const c = window.claude;
-  if (!c || typeof c.use !== 'function') { NET.avail = false; renderTitle(); return; }
+  if (!c || typeof c.use !== 'function') {
+    // a normal web page: connect the two browsers directly
+    NET.kind = typeof RTCPeerConnection !== 'undefined' ? 'p2p' : null;
+    NET.avail = NET.kind === 'p2p'; renderTitle(); return;
+  }
   try { NET.room = await c.use('room'); } catch (e) { NET.room = null; }
+  NET.kind = NET.room ? 'room' : null;
   NET.avail = !!NET.room;
   if (NET.room) { try { NET.room.onConnection(ok => { NET.connected = ok; }, () => { NET.avail = false; renderTitle(); }); } catch (e) {} }
   renderTitle();
 }
 function newCode() { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = 'casa-'; for (let i = 0; i < 5; i++) s += a[(Math.random() * a.length) | 0]; return s; }
-async function openChan(code) {
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.async = true;
+    s.onload = () => res(); s.onerror = () => rej(Object.assign(new Error('script'), { type: 'script' }));
+    document.head.appendChild(s);
+  });
+}
+function peerOpts() {
+  // tests can point at a local PeerServer; anything else uses the public PeerJS server
+  const m = /[?&]peer=(localhost|127\.0\.0\.1):(\d+)/.exec(location.search);
+  return m ? { host: m[1], port: +m[2], path: '/', secure: false, debug: 0 } : { debug: 0 };
+}
+// Same shape as a claude.ai room (presence + peers) over PeerJS data channels.
+async function openP2P(code, asHost) {
+  if (typeof Peer === 'undefined') await loadScript(PEER_SRC);
+  const peer = asHost ? new Peer(PEER_PREFIX + code, peerOpts()) : new Peer(peerOpts());
+  const mine = {}, others = new Map(), conns = new Set();
+  let snap = Object.freeze([]), dirty = true, myId = '';
+  const fail = e => { try { peer.destroy(); } catch (x) {} throw e; };
+  const waitFor = (em, evName, errType) => new Promise((res, rej) => {
+    const t = setTimeout(() => rej(Object.assign(new Error('timeout'), { type: errType })), 15000);
+    em.once(evName, v => { clearTimeout(t); res(v); });
+    peer.once('error', e => { clearTimeout(t); rej(e); });
+  });
+  myId = await waitFor(peer, 'open', 'timeout').catch(fail);
+  peer.on('error', () => {});
+  const send = c => { if (c.open) { try { c.send({ p: mine }); } catch (e) {} } };
+  const attach = c => {
+    conns.add(c);
+    c.on('open', () => send(c));
+    c.on('data', d => {
+      if (!d || typeof d !== 'object' || !d.p || typeof d.p !== 'object') return;
+      others.set(c.peer, { presence: Object.freeze(d.p), seen: Date.now() }); dirty = true;
+    });
+    const gone = () => { conns.delete(c); if (others.delete(c.peer)) dirty = true; };
+    c.on('close', gone); c.on('error', gone);
+  };
+  if (asHost) peer.on('connection', attach);
+  else {
+    const c = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
+    attach(c);
+    await waitFor(c, 'open', 'peer-unavailable').catch(fail);
+  }
+  peer.on('disconnected', () => { if (!peer.destroyed) { try { peer.reconnect(); } catch (e) {} } });
+  const beat = setInterval(() => {
+    conns.forEach(send);
+    const now = Date.now();
+    for (const [id, o] of others) if (now - o.seen > 8000) { others.delete(id); dirty = true; }
+  }, 1000);
+  return {
+    presence: async patch => { for (const k in patch) { if (patch[k] === null) delete mine[k]; else mine[k] = patch[k]; } dirty = true; conns.forEach(send); },
+    peers: () => {
+      if (dirty) {
+        dirty = false;
+        snap = Object.freeze([{ peer: myId, sameTab: true, isMe: true, kind: 'viewer', presence: mine },
+          ...[...others].map(([id, o]) => ({ peer: id, sameTab: false, isMe: false, kind: 'viewer', presence: o.presence }))]);
+      }
+      return snap;
+    },
+    leave: () => { clearInterval(beat); try { peer.destroy(); } catch (e) {} },
+  };
+}
+async function openChan(code, asHost) {
+  if (NET.kind === 'p2p') return openP2P(code, asHost);
   try {
     const r = await NET.room.join(code);
     NET.named = true;
@@ -1339,7 +1422,7 @@ async function openChan(code) {
   }
 }
 function advertise(open) {
-  if (!NET.room) return;
+  if (!NET.room || NET.kind !== 'room') return;
   const p = open == null ? { hosting: null, hn: null, open: null } : { hosting: NET.code, hn: myName() || 'Alguém', open: open ? 1 : 0 };
   NET.room.presence(p).catch(() => {});
 }
@@ -1347,16 +1430,18 @@ async function hostGame() {
   if (!NET.avail || NET.joining) return;
   NET.joining = true; auStart();
   try {
-    const code = newCode();
+    let code = newCode();
     Object.assign(NET, { code, role: 'host', mate: null, hostRole: 'l', evLog: [], evSeq: 0, q: 0, seen: { a: 0, sh: 0, nx: 0 }, guestName: '', mateGoneT: 0 });
-    NET.chan = await openChan(code);
+    try { NET.chan = await openChan(code, true); }
+    catch (e) { if (!e || e.type !== 'unavailable-id') throw e; code = NET.code = newCode(); NET.chan = await openChan(code, true); }
     S.mode = 'online'; ME = 0; R = 1;
     await NET.chan.presence({ v: PROTO, host: 1, code, nm: myName() || 'Lucas' });
     advertise(true);
     S.stats = { nights: 0, saved: 0, shots: 0 };
     assignNames(); setPhase('lobby');
   } catch (e) {
-    leaveNet(); toast('Não deu pra abrir a partida agora. Tente de novo em instantes.', 'bad');
+    leaveNet();
+    toast(NET.kind === 'p2p' ? 'Não deu pra conectar ao servidor de partidas. Confira a internet e tente de novo.' : 'Não deu pra abrir a partida agora. Tente de novo em instantes.', 'bad', 6000);
   } finally { NET.joining = false; }
 }
 async function joinGame(code) {
@@ -1366,13 +1451,15 @@ async function joinGame(code) {
   try {
     Object.assign(NET, { code, role: 'guest', mate: null, lastQ: 0, lastEv: 0, evReady: false, cnt: { a: 0, sh: 0, nx: 0 }, accepted: false, init: false, hostGoneT: 0, everHost: false, lastIn: '', hostName: '' });
     S.setupKey = '';
-    NET.chan = await openChan(code);
+    NET.chan = await openChan(code, false);
     S.mode = 'online';
     await NET.chan.presence({ v: PROTO, want: 'join', code, nm: myName() || 'Você', i: null });
     droneStart();
     setPhase('lobby');
   } catch (e) {
-    leaveNet(); toast('Não deu pra entrar na partida. Confira o código e tente de novo.', 'bad');
+    leaveNet();
+    toast(e && e.type === 'peer-unavailable' ? 'Partida não encontrada. Quem criou precisa estar com a página aberta; peça o link de novo.'
+      : NET.kind === 'p2p' ? 'Não deu pra conectar. Confira a internet e tente de novo.' : 'Não deu pra entrar na partida. Confira o código e tente de novo.', 'bad', 6000);
   } finally { NET.joining = false; }
 }
 function leaveNet() {
@@ -1422,7 +1509,8 @@ function netTick(dt) {
 function hostNet(ps, dt) {
   const others = ps.filter(p => !p.sameTab && p.kind === 'viewer' && p.presence && p.presence.v === PROTO && p.presence.want === 'join' && p.presence.code === NET.code);
   let mate = NET.mate ? others.find(p => p.peer === NET.mate) : null;
-  if (NET.mate && !mate) { NET.mateGoneT += dt; if (NET.mateGoneT > 3) mateLost(); }
+  // wall-clock grace, so a slow device doesn't stretch it
+  if (NET.mate && !mate) { const now = performance.now(); if (!NET.mateGoneT) NET.mateGoneT = now; if (now - NET.mateGoneT > 3000) mateLost(); }
   else NET.mateGoneT = 0;
   if (!NET.mate && others.length) { mate = others[0]; mateJoined(mate); }
   if (mate) {
@@ -1467,7 +1555,7 @@ function sendSnap() {
 }
 function guestNet(ps, dt) {
   const host = ps.find(p => !p.sameTab && p.presence && p.presence.v === PROTO && p.presence.host === 1 && p.presence.code === NET.code);
-  if (!host) { NET.hostGoneT += dt; if (NET.hostGoneT > (NET.everHost ? 6 : 14)) lostConnection(NET.everHost ? 'saiu' : 'sumiu'); }
+  if (!host) { const now = performance.now(); if (!NET.hostGoneT) NET.hostGoneT = now; if (now - NET.hostGoneT > (NET.everHost ? 6000 : 14000)) lostConnection(NET.everHost ? 'saiu' : 'sumiu'); }
   else {
     NET.hostGoneT = 0; NET.everHost = true; NET.hostName = cleanName(host.presence.nm);
     if (host.presence.s) applySnap(host.presence.s);
@@ -1561,8 +1649,10 @@ function renderTitle() {
   $('codeForm').querySelector('button').disabled = !ok;
   if (!HAS3D) $('netNote').textContent = 'O 3D não carregou: o navegador não conseguiu baixar a biblioteca three.js.';
   else if (NET.avail === null) $('netNote').textContent = 'Verificando se dá pra jogar online…';
-  else if (ok) $('netNote').innerHTML = 'Online pronto. A outra pessoa precisa <b>entrar com uma conta do claude.ai</b> e ter <b>acesso a esta página</b> (menu Compartilhar). Link público não conecta.';
-  else $('netNote').textContent = 'Online indisponível aqui. O modo para dois funciona abrindo esta página pelo link do claude.ai, com uma conta conectada. Dá pra jogar no modo solo.';
+  else if (NET.kind === 'p2p') $('netNote').textContent = 'Online pronto. Crie a partida e mande o link: a outra pessoa só abre no navegador, no celular ou no computador. Não precisa de conta.';
+  else if (ok) $('netNote').innerHTML = 'Aqui no claude.ai a outra pessoa precisa de conta e acesso a esta página. <b>Sem conta?</b> Joguem pela <a href="' + PUBLIC_URL + '" target="_blank" rel="noopener">versão pública</a>: lá é só mandar o link.';
+  else $('netNote').innerHTML = 'Online indisponível aqui. Joguem pela <a href="' + PUBLIC_URL + '" target="_blank" rel="noopener">versão pública</a>: quem cria a partida manda o link e a outra pessoa só abre, sem conta.';
+  $('bDuo').disabled = !HAS3D;
 }
 function renderOpenGames() {
   const box = $('openBox'), list = $('openList');
@@ -1587,12 +1677,18 @@ function renderLobby() {
   $('lbCode').textContent = 'Partida ' + (NET.code || '');
   $('lbShare').hidden = !host;
   $('bStart').hidden = !host; $('bSwap').hidden = !host;
-  const link = ARTIFACT_URL ? ARTIFACT_URL + '#' + NET.code : '';
+  const base = NET.kind === 'p2p' ? location.href.split('#')[0] : ARTIFACT_URL;
+  const link = base ? base + '#' + NET.code : '';
   if ($('lbLink').value !== (link || NET.code || '')) $('lbLink').value = link || NET.code || '';
   $('lbShareNote').innerHTML = '';
   const note = document.createElement('span');
-  note.textContent = (link ? 'Mande esse link. ' : 'Mande o link desta página com #' + NET.code + ' no final, ou só o código. ') +
-    'Quem for jogar precisa entrar com uma conta do claude.ai e ter acesso a esta página: libere pelo menu Compartilhar antes de mandar.';
+  if (NET.kind === 'p2p') note.textContent = 'Mande esse link pra outra pessoa. É só abrir no navegador, sem conta. Deixe esta página aberta até ela entrar.';
+  else {
+    note.textContent = (link ? 'Mande esse link. ' : 'Mande o link desta página com #' + NET.code + ' no final, ou só o código. ') +
+      'Aqui no claude.ai quem for jogar precisa de conta e acesso a esta página (menu Compartilhar). Sem conta, usem a ';
+    const a = document.createElement('a'); a.href = PUBLIC_URL; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'versão pública';
+    note.append(a, '.');
+  }
   $('lbShareNote').append(note);
   const mateIn = host ? !!NET.mate : NET.accepted;
   const seat = (i, el, you) => {
@@ -1613,7 +1709,7 @@ function renderLobby() {
 
 // ---------- input ----------
 const keys = new Set(), pressed = new Set();
-const GAME_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Enter', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyF', 'KeyC']);
+const GAME_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Enter', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyF', 'KeyC', 'Slash', 'Period', 'ShiftRight', 'NumpadEnter', 'Numpad0']);
 let mouseShot = null;
 const tp = { act: false, shoot: false, swap: false };
 const joy = { active: false, id: null, x: 0, y: 0, bx: 0, by: 0 };
@@ -1692,6 +1788,16 @@ function readInput() {
   if (mouseShot) { inp.shoot = true; inp.aim = mouseShot; inp.mouse = true; mouseShot = null; }
   tp.act = tp.shoot = tp.swap = false;
   return inp;
+}
+// two people on one keyboard: WASD + E/F for the searcher, arrows + Enter for the distractor
+function readDuoInput() {
+  const k = c => keys.has(c), p = c => pressed.has(c);
+  const a = { mx: (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0), my: (k('KeyS') ? 1 : 0) - (k('KeyW') ? 1 : 0), act: p('KeyE'), shoot: p('KeyF') || p('Space'), aim: null, mouse: false };
+  const b = { mx: (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0), my: (k('ArrowDown') ? 1 : 0) - (k('ArrowUp') ? 1 : 0),
+    act: p('Enter') || p('NumpadEnter') || p('ShiftRight') || p('Slash') || p('Period') || p('Numpad0'), shoot: false, aim: null, mouse: false };
+  if (mouseShot) { a.shoot = true; a.aim = mouseShot; a.mouse = true; mouseShot = null; }
+  tp.act = tp.shoot = tp.swap = false;
+  return [a, b];
 }
 
 // ---------- simulation ----------
@@ -1778,12 +1884,20 @@ function hostUpdate(dt) {
   S.time += dt; timers(dt);
   if (S.phase === 'title' || S.phase === 'lobby') { for (const n of S.npcs) npcUpdate(n, dt); separateAll(); return; }
   if (!inPlay()) return;
-  const inp = readInput();
-  if (controlsBoth() && inp.swap) { S.active = 1 - S.active; sfx.swap(); }
-  const c = P[ctlIdx()];
-  movePlayer(c, inp, dt);
-  if (inp.act) doAction(c);
-  if (inp.shoot && (controlsBoth() || ME === 0)) tryShoot(inp.aim, inp.mouse);
+  if (localDuo()) {
+    const [a, b] = readDuoInput();
+    movePlayer(L, a, dt); movePlayer(V, b, dt);
+    if (a.act) doAction(L);
+    if (b.act) doAction(V);
+    if (a.shoot) tryShoot(a.aim, a.mouse);
+  } else {
+    const inp = readInput();
+    if (controlsBoth() && inp.swap) { S.active = 1 - S.active; sfx.swap(); }
+    const c = P[ctlIdx()];
+    movePlayer(c, inp, dt);
+    if (inp.act) doAction(c);
+    if (inp.shoot && (controlsBoth() || ME === 0)) tryShoot(inp.aim, inp.mouse);
+  }
   const remote = online() && NET.mate ? P[R] : null;
   for (const p of P) p.remote = p === remote;
   if (remote) { smoothEnt(remote, dt, 18); remote.moving = remote.remoteMoving; }
@@ -2556,12 +2670,12 @@ function render3D(dt) {
     if (!playing) continue;
     animPerson(v, p, dt, playerState(p), t);
     v.gun.visible = p === L && L.gun;
-    const mine = localCtl(p) && (!controlsBoth() || P[S.active] === p);
+    const mine = isMine(p);
     v.ring.material.opacity = mine ? 0.75 + Math.sin(t * 5) * 0.2 : 0.35;
     v.ring.scale.setScalar(mine ? 1 + Math.sin(t * 5) * 0.05 : 0.9);
   }
   const showCones = S.phase === 'prep' || S.phase === 'title' || S.phase === 'lobby';
-  const talkHl = inPlay() && S.phase === 'prep' && localCtl(V) && (!controlsBoth() || S.active === 1) ? new Set(talkables()) : null;
+  const talkHl = inPlay() && S.phase === 'prep' && isMine(V) ? new Set(talkables()) : null;
   for (const n of S.npcs) {
     const v = n.vis; const vis = n.state !== 'lost'; v.root.visible = vis;
     if (vis) animPerson(v, n, dt, n.state === 'walk' ? 'idle' : n.state, t);
@@ -2572,7 +2686,7 @@ function render3D(dt) {
   animFurn(dt, t);
   // hiding-spot glints and highlights
   const showG = inPlay();
-  const lMine = showG && localCtl(L) && (!controlsBoth() || S.active === 0);
+  const lMine = showG && isMine(L);
   const nearL = lMine && !L.searching && L.hp > 0 ? nearestSpot(L) : null;
   for (const g of FX.glints) {
     g.m.visible = showG && !g.f.searched;
@@ -2582,7 +2696,7 @@ function render3D(dt) {
     g.m.scale.setScalar(g.f === nearL ? 1.6 : 1);
   }
   placeFrame(FX.hlL, nearL);
-  const vMine = showG && S.phase === 'prep' && localCtl(V) && (!controlsBoth() || S.active === 1);
+  const vMine = showG && S.phase === 'prep' && isMine(V);
   const nd = vMine ? nearDevice(V) : null;
   placeFrame(FX.hlV, nd ? nd.f : null);
   // hint outlines
@@ -2633,12 +2747,13 @@ function updateCamera(dt) {
     const tx = 19 + Math.sin(orbitA) * 26, tz = 13 + Math.cos(orbitA) * 26;
     camPos.set(tx, 19, tz); camLook.set(19, 0, 13);
   } else {
-    const f = P[ctlIdx()];
+    const f = localDuo() ? { x: (L.x + V.x) / 2, y: (L.y + V.y) / 2 } : P[ctlIdx()];
     const k = 1 - Math.exp(-6 * dt);
     camT.x += (f.x - camT.x) * k; camT.z += (f.y - camT.z) * k;
     const aspect = cw / ch, vis = aspect < 1 ? 10 : ch < 500 ? 18 : 15;
     let d = (vis / 2) / (Math.tan(camera.fov * Math.PI / 360) * aspect);
     d = clamp(d, 11, 30) * zoomMul;
+    if (localDuo()) d = Math.max(d, Math.min(32, 8 + Math.hypot(L.x - V.x, L.y - V.y) * (aspect < 1.3 ? 1.6 : 1.05)));
     const fx = camT.x, fz = camT.z + (aspect < 1 ? 0.6 : 0.4);
     const px = fx, py = d * 0.83, pz = fz + d * 0.56;
     if (introT < 1) {
@@ -2710,10 +2825,10 @@ function updateLabels(t) {
     const searching = ok && p === L && L.searching;
     if (searching) lb.ring.style.setProperty('--p', Math.round(clamp(L.search ? L.search.t / SEARCH_T : L.searchP, 0, 1) * 100));
     setLb(lb.ring, searching, undefined, fp && fp.x, fp && fp.y, '-50%', '-50%');
-    const show = ok && inPlay() && localCtl(p) && (!controlsBoth() || P[S.active] === p);
+    const show = ok && inPlay() && isMine(p);
     const a = show ? ctxAction(p) : null;
     if (a) {
-      const key = isTouch ? '' : 'E';
+      const key = isTouch ? '' : localDuo() && p === V ? 'Enter' : 'E';
       const html = (key ? '<b>' + key + '</b>' : '') + '<span></span>';
       const cls = 'lb pr ' + p.role + (a.dim ? ' dim' : '') + (key ? '' : ' nokey');
       if (lb.prompt._h !== html) { lb.prompt._h = html; lb.prompt.innerHTML = html; lb.prompt._t = null; }
@@ -2762,7 +2877,7 @@ function hudUpdate() {
   else vt = S.tauntCd > 0 ? `provocar ${Math.ceil(S.tauntCd)}s` : 'provocar';
   setText('pcVTool', vt); setClass('pcVTool', 'warn', S.phase === 'inv' && S.tauntCd <= 0);
   const both = controlsBoth();
-  setClass('pcL', 'on', both ? S.active === 0 : ME === 0); setClass('pcV', 'on', both ? S.active === 1 : ME === 1);
+  setClass('pcL', 'on', isMine(L)); setClass('pcV', 'on', isMine(V));
   if (online()) {
     setHidden('hNet', false);
     let txt, off = false;
@@ -2786,9 +2901,10 @@ $('myName').value = store.get('name', '');
 $('myName').addEventListener('change', () => store.set('name', myName()));
 $('bHost').addEventListener('click', () => { store.set('name', myName()); hostGame(); });
 $('bJoin').addEventListener('click', () => { store.set('name', myName()); if (inviteCode) joinGame(inviteCode); });
-$('bSolo').addEventListener('click', () => { store.set('name', myName()); startGame(true); });
+$('bSolo').addEventListener('click', () => { store.set('name', myName()); startGame('solo'); });
+$('bDuo').addEventListener('click', () => { store.set('name', myName()); startGame('duo'); });
 $('codeForm').addEventListener('submit', e => { e.preventDefault(); store.set('name', myName()); joinGame($('codeIn').value.trim().toLowerCase()); });
-$('bStart').addEventListener('click', () => { if (NET.role === 'host') startGame(false); });
+$('bStart').addEventListener('click', () => { if (NET.role === 'host') startGame('online'); });
 $('bSwap').addEventListener('click', () => { if (NET.role !== 'host') return; NET.hostRole = NET.hostRole === 'l' ? 'v' : 'l'; ME = NET.hostRole === 'l' ? 0 : 1; R = 1 - ME; S.active = ME; assignNames(); renderLobby(); sendSnap(); });
 $('bLeave').addEventListener('click', backToMenu);
 $('bCopy').addEventListener('click', () => {
@@ -2805,7 +2921,7 @@ $('xMenu').addEventListener('click', backToMenu);
 $('bPause').addEventListener('click', () => setPaused(true));
 $('bMute').addEventListener('click', () => { auStart(); setMuted(!S.muted); });
 $('bCam').addEventListener('click', cycleZoom);
-$('keysKb').hidden = isTouch; $('keysTouch').hidden = !isTouch;
+$('keysKb').hidden = isTouch; $('keysTouch').hidden = !isTouch; $('bDuo').hidden = isTouch;
 addEventListener('resize', () => { resize(); layoutToasts(); });
 addEventListener('hashchange', renderTitle);
 
